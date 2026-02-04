@@ -1,12 +1,12 @@
 {
   "name": "tictactoe-backend",
   "version": "1.0.0",
-  "description": "Tic Tac Toe Backend for Koyeb",
+  "description": "Multiplayer Tic Tac Toe Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "8.17.1"
   }
 }
