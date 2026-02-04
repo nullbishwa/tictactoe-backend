@@ -1,15 +1,12 @@
 {
-  "name": "tictactoe-backend",
+  "name": "tictactoe-render-backend",
   "version": "1.0.0",
-  "description": "Multiplayer Tic Tac Toe Backend",
+  "description": "24/7 Tic Tac Toe Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "ws": "^8.17.1"
-  },
-  "engines": {
-    "node": "20.x"
   }
 }
