@@ -4,10 +4,12 @@
   "description": "Multiplayer Tic Tac Toe Backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "build": "npm install"
+    "start": "node server.js"
   },
   "dependencies": {
-    "ws": "8.17.1"
+    "ws": "^8.17.1"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
