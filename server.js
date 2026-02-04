@@ -1,9 +1,22 @@
 const { WebSocketServer } = require('ws');
+const http = require('http');
 
-// Railway automatically provides a PORT
+// Render will tell the server which port to use via process.env.PORT
 const port = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port });
 
+// 1. Create a basic HTTP server to handle "Keep-Alive" pings
+const server = http.createServer((req, res) => {
+    if (req.url === '/ping') {
+        res.writeHead(200);
+        res.end("I am awake!"); // External services will hit this URL
+    } else {
+        res.writeHead(200);
+        res.end("Tic Tac Toe Server is Running");
+    }
+});
+
+// 2. Attach the WebSocket server to the HTTP server
+const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
 wss.on('connection', (ws, req) => {
@@ -22,7 +35,7 @@ wss.on('connection', (ws, req) => {
     const room = rooms.get(roomId);
     room.clients.add(ws);
 
-    // Immediate state sync
+    // Sync board state immediately
     ws.send(JSON.stringify({ type: 'STATE', board: room.board }));
 
     ws.on('message', (data) => {
@@ -35,16 +48,17 @@ wss.on('connection', (ws, req) => {
             }
 
             const winner = checkWinner(room.board, room.size);
-            const isDraw = !room.board.includes(null) && !winner;
-
             const response = JSON.stringify({
-                type: 'STATE', board: room.board, winner, isDraw
+                type: 'STATE',
+                board: room.board,
+                winner: winner,
+                isDraw: !room.board.includes(null) && !winner
             });
 
             room.clients.forEach(client => {
                 if (client.readyState === 1) client.send(response);
             });
-        } catch (e) { console.error("Error processing move"); }
+        } catch (e) { console.log("JSON Error"); }
     });
 
     ws.on('close', () => {
@@ -71,4 +85,6 @@ function checkWinner(board, size) {
     return null;
 }
 
-console.log(`Server live on port ${port}`);
+server.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+});
