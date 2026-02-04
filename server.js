@@ -1,5 +1,6 @@
 const { WebSocketServer } = require('ws');
 
+// Railway automatically provides a PORT
 const port = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port });
 
@@ -21,6 +22,7 @@ wss.on('connection', (ws, req) => {
     const room = rooms.get(roomId);
     room.clients.add(ws);
 
+    // Immediate state sync
     ws.send(JSON.stringify({ type: 'STATE', board: room.board }));
 
     ws.on('message', (data) => {
@@ -36,18 +38,13 @@ wss.on('connection', (ws, req) => {
             const isDraw = !room.board.includes(null) && !winner;
 
             const response = JSON.stringify({
-                type: 'STATE',
-                board: room.board,
-                winner: winner,
-                isDraw: isDraw
+                type: 'STATE', board: room.board, winner, isDraw
             });
 
             room.clients.forEach(client => {
                 if (client.readyState === 1) client.send(response);
             });
-        } catch (e) {
-            console.error("Invalid JSON");
-        }
+        } catch (e) { console.error("Error processing move"); }
     });
 
     ws.on('close', () => {
@@ -60,8 +57,6 @@ function checkWinner(board, size) {
     for (let i = 0; i < size; i++) {
         let row = board.slice(i * size, (i + 1) * size);
         if (row[0] && row.every(v => v === row[0])) return row[0];
-    }
-    for (let i = 0; i < size; i++) {
         let col = [];
         for (let j = 0; j < size; j++) col.push(board[j * size + i]);
         if (col[0] && col.every(v => v === col[0])) return col[0];
@@ -76,4 +71,4 @@ function checkWinner(board, size) {
     return null;
 }
 
-console.log(`Server started on port ${port}`);
+console.log(`Server live on port ${port}`);
