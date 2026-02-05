@@ -8,7 +8,7 @@ const port = process.env.PORT || 8080;
 const server = http.createServer((req, res) => {
     if (req.url === '/ping') {
         res.writeHead(200);
-        res.end("I am awake!"); // External services will hit this URL
+        res.end("I am awake!");
     } else {
         res.writeHead(200);
         res.end("Tic Tac Toe Server is Running");
@@ -27,13 +27,16 @@ wss.on('connection', (ws, req) => {
     if (!rooms.has(roomId)) {
         rooms.set(roomId, {
             board: Array(size * size).fill(null),
-            clients: new Set(),
+            clients: new Map(), // Changed to Map to track ws -> symbol
             size: size
         });
     }
 
     const room = rooms.get(roomId);
-    room.clients.add(ws);
+    
+    // Assign Symbol: First is X, Second is O
+    const playerSymbol = room.clients.size === 0 ? 'X' : 'O';
+    room.clients.set(ws, playerSymbol);
 
     // Sync board state immediately
     ws.send(JSON.stringify({ type: 'STATE', board: room.board }));
@@ -41,6 +44,21 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (data) => {
         try {
             const move = JSON.parse(data);
+
+            // --- FEATURE: LOVE NUDGES (EMOTES) ---
+            if (move.type === 'EMOTE') {
+                const response = JSON.stringify({ 
+                    type: 'EMOTE', 
+                    emoji: move.emoji, 
+                    sender: playerSymbol 
+                });
+                room.clients.forEach((symbol, client) => {
+                    if (client.readyState === 1) client.send(response);
+                });
+                return; // Exit after broadcasting nudge
+            }
+
+            // --- EXISTING MOVE LOGIC ---
             if (move.type === 'RESET') {
                 room.board = Array(room.size * room.size).fill(null);
             } else {
@@ -55,14 +73,28 @@ wss.on('connection', (ws, req) => {
                 isDraw: !room.board.includes(null) && !winner
             });
 
-            room.clients.forEach(client => {
+            // Broadcast state to all clients in the map
+            room.clients.forEach((symbol, client) => {
                 if (client.readyState === 1) client.send(response);
             });
         } catch (e) { console.log("JSON Error"); }
     });
 
     ws.on('close', () => {
+        const leavingSymbol = room.clients.get(ws);
         room.clients.delete(ws);
+
+        // --- FEATURE: AUTO-KICK ON DISCONNECT ---
+        if (room.clients.size > 0) {
+            const kickMsg = JSON.stringify({ 
+                type: 'KICK', 
+                message: `Partner (${leavingSymbol}) disconnected. Game Over.` 
+            });
+            room.clients.forEach((symbol, client) => {
+                if (client.readyState === 1) client.send(kickMsg);
+            });
+        }
+
         if (room.clients.size === 0) rooms.delete(roomId);
     });
 });
