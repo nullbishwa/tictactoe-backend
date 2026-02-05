@@ -5,13 +5,12 @@ const port = process.env.PORT || 8080;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200);
-    res.end(req.url === '/ping' ? "I am awake!" : "Multi-Game Server Running");
+    res.end(req.url === '/ping' ? "I am awake!" : "Advanced Multi-Game Server Running");
 });
 
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
-// Chess Initial State
 const initialChessBoard = [
     "bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR",
     "bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP",
@@ -20,6 +19,63 @@ const initialChessBoard = [
     "wR", "wN", "wB", "wQ", "wK", "wB", "wN", "wR"
 ];
 
+// --- CORE CHESS VALIDATION ---
+function isMoveLegal(from, to, board, playerColor) {
+    const piece = board[from];
+    if (!piece || piece[0] !== playerColor) return false;
+    const target = board[to];
+    if (target && target[0] === playerColor) return false;
+
+    const fromRow = Math.floor(from / 8), fromCol = from % 8;
+    const toRow = Math.floor(to / 8), toCol = to % 8;
+    const rowDiff = Math.abs(toRow - fromRow);
+    const colDiff = Math.abs(toCol - fromCol);
+
+    switch (piece[1]) {
+        case 'P': // Pawn Logic
+            const dir = playerColor === 'w' ? -1 : 1;
+            // Forward move
+            if (fromCol === toCol && !target) {
+                if (toRow === fromRow + dir) return true;
+                if (fromRow === (playerColor === 'w' ? 6 : 1) && toRow === fromRow + 2 * dir && !board[from + 8 * dir]) return true;
+            }
+            // Capture
+            return (colDiff === 1 && toRow === fromRow + dir && target);
+        case 'R': return (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
+        case 'B': return (rowDiff === colDiff) && isPathClear(from, to, board);
+        case 'Q': return (rowDiff === colDiff || fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
+        case 'N': return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
+        case 'K': return rowDiff <= 1 && colDiff <= 1;
+        default: return false;
+    }
+}
+
+function isPathClear(from, to, board) {
+    const fromRow = Math.floor(from / 8), fromCol = from % 8;
+    const toRow = Math.floor(to / 8), toCol = to % 8;
+    const rStep = toRow === fromRow ? 0 : (toRow > fromRow ? 1 : -1);
+    const cStep = toCol === fromCol ? 0 : (toCol > fromCol ? 1 : -1);
+    let r = fromRow + rStep, c = fromCol + cStep;
+    while (r !== toRow || c !== toCol) {
+        if (board[r * 8 + c]) return false;
+        r += rStep; c += cStep;
+    }
+    return true;
+}
+
+// --- ADVANCED CHECK DETECTION ---
+function isKingInCheck(board, color) {
+    const kingPos = board.indexOf(color + 'K');
+    if (kingPos === -1) return false;
+    const enemyColor = color === 'w' ? 'b' : 'w';
+    for (let i = 0; i < 64; i++) {
+        if (board[i] && board[i][0] === enemyColor) {
+            if (isMoveLegal(i, kingPos, board, enemyColor)) return true;
+        }
+    }
+    return false;
+}
+
 wss.on('connection', (ws, req) => {
     const parts = req.url.split('/');
     const roomId = parts[2] || 'default';
@@ -27,86 +83,81 @@ wss.on('connection', (ws, req) => {
 
     if (!rooms.has(roomId)) {
         rooms.set(roomId, {
-            // IF SIZE IS 8, IT'S CHESS. ELSE, IT'S TIC-TAC-TOE.
             board: size === 8 ? [...initialChessBoard] : Array(size * size).fill(null),
-            clients: new Map(),
-            size: size,
-            turn: 'w' // Only used for Chess
+            clients: new Map(), size, turn: 'w'
         });
     }
 
     const room = rooms.get(roomId);
-    
-    // Assign Symbols: w/b for Chess, X/O for Tic-Tac-Toe
-    let playerSymbol;
-    if (size === 8) {
-        playerSymbol = room.clients.size === 0 ? 'w' : 'b';
-    } else {
-        playerSymbol = room.clients.size === 0 ? 'X' : 'O';
-    }
-    
+    const playerSymbol = size === 8 ? (room.clients.size === 0 ? 'w' : 'b') : (room.clients.size === 0 ? 'X' : 'O');
     room.clients.set(ws, playerSymbol);
 
-    // Initial Sync
-    ws.send(JSON.stringify({ type: 'STATE', board: room.board, turn: room.turn }));
+    ws.send(JSON.stringify({ type: 'STATE', board: room.board, turn: room.turn, myColor: playerSymbol }));
 
     ws.on('message', (data) => {
         try {
             const msg = JSON.parse(data);
 
-            // 1. EMOTES (Shared by both games)
             if (msg.type === 'EMOTE') {
-                const response = JSON.stringify({ type: 'EMOTE', emoji: msg.emoji, sender: playerSymbol });
-                room.clients.forEach((symbol, client) => { if (client.readyState === 1) client.send(response); });
+                const res = JSON.stringify({ type: 'EMOTE', emoji: msg.emoji, sender: playerSymbol });
+                room.clients.forEach((s, c) => { if (c.readyState === 1) c.send(res); });
                 return;
             }
 
-            // 2. RESET
             if (msg.type === 'RESET') {
                 room.board = size === 8 ? [...initialChessBoard] : Array(size * size).fill(null);
                 room.turn = 'w';
             } 
-            
-            // 3. MOVE LOGIC
-            else if (size === 8) {
-                // --- CHESS MODE ---
-                const piece = room.board[msg.from];
-                if (piece) {
-                    room.board[msg.to] = piece;
-                    room.board[msg.from] = null;
-                    room.turn = room.turn === 'w' ? 'b' : 'w';
+            else if (size === 8 && msg.type === 'MOVE') {
+                if (room.turn !== playerSymbol) return;
+                
+                if (isMoveLegal(msg.from, msg.to, room.board, playerSymbol)) {
+                    const tempBoard = [...room.board];
+                    tempBoard[msg.to] = tempBoard[msg.from];
+                    tempBoard[msg.from] = null;
+
+                    // ADVANCED: Block move if it leaves own King in Check
+                    if (!isKingInCheck(tempBoard, playerSymbol)) {
+                        room.board = tempBoard;
+                        
+                        // ADVANCED: Auto-Promote Pawn to Queen
+                        const row = Math.floor(msg.to / 8);
+                        if (room.board[msg.to] === 'wP' && row === 0) room.board[msg.to] = 'wQ';
+                        if (room.board[msg.to] === 'bP' && row === 7) room.board[msg.to] = 'bQ';
+
+                        room.turn = room.turn === 'w' ? 'b' : 'w';
+                    } else {
+                        ws.send(JSON.stringify({ type: 'ERROR', message: "Illegal: King in Check!" }));
+                        return;
+                    }
                 }
-            } else {
-                // --- TIC-TAC-TOE MODE ---
+            } else if (size !== 8) {
                 room.board[msg.index] = msg.symbol;
             }
 
-            // 4. WINNER CHECK (Only for Tic-Tac-Toe)
-            const winner = size === 8 ? null : checkWinner(room.board, room.size);
-            
-            const response = JSON.stringify({
-                type: 'STATE',
-                board: room.board,
-                winner: winner,
+            const stateRes = JSON.stringify({ 
+                type: 'STATE', 
+                board: room.board, 
                 turn: room.turn,
-                isDraw: size !== 8 && !room.board.includes(null) && !winner
+                winner: size === 8 ? null : checkWinner(room.board, room.size),
+                inCheck: size === 8 ? isKingInCheck(room.board, room.turn) : false 
             });
-
-            room.clients.forEach((symbol, client) => { if (client.readyState === 1) client.send(response); });
+            room.clients.forEach((s, c) => { if (c.readyState === 1) c.send(stateRes); });
         } catch (e) { console.log("JSON Error"); }
     });
 
     ws.on('close', () => {
-        const leavingSymbol = room.clients.get(ws);
+        const sym = room.clients.get(ws);
         room.clients.delete(ws);
         if (room.clients.size > 0) {
-            const kickMsg = JSON.stringify({ type: 'KICK', message: `Partner (${leavingSymbol}) disconnected.` });
-            room.clients.forEach((symbol, client) => { if (client.readyState === 1) client.send(kickMsg); });
+            const kick = JSON.stringify({ type: 'KICK', message: `Partner (${sym}) left.` });
+            room.clients.forEach((s, c) => { if (c.readyState === 1) c.send(kick); });
         }
         if (room.clients.size === 0) rooms.delete(roomId);
     });
 });
 
+// Reuse your original checkWinner function for Tic-Tac-Toe
 function checkWinner(board, size) {
     for (let i = 0; i < size; i++) {
         let row = board.slice(i * size, (i + 1) * size);
@@ -125,4 +176,4 @@ function checkWinner(board, size) {
     return null;
 }
 
-server.listen(port, () => console.log(`Multi-Game Server on port ${port}`));
+server.listen(port, () => console.log(`Advanced Multi-Game Server on port ${port}`));
