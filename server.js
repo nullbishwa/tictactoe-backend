@@ -181,9 +181,37 @@ wss.on('connection', (ws, req) => {
                         room.history.push(room.board.join(','));
                     }
                 }
-            } else if (size !== 8) {
-                // Logic for Tic-Tac-Toe
-                room.board[msg.index] = msg.symbol;
+            } 
+            else if (size !== 8) {
+                // --- HUBBY & WIIFU TIC-TAC-TOE LOGIC ---
+                
+                // 1. Process the move
+                if (msg.type === 'RESET') {
+                    room.board = Array(room.size * room.size).fill(null);
+                } else if (msg.type === 'MOVE') {
+                    // Use the symbol assigned to this specific player (Hubby/Wiifu)
+                    room.board[msg.index] = myColor === 'w' ? 'X' : 'O'; 
+                }
+
+                // 2. Check for game over using your original logic
+                const winner = checkWinner(room.board, room.size);
+                const isDraw = !room.board.includes(null) && !winner;
+
+                // 3. Prepare the response with Hubby/Wiifu context
+                const stateRes = JSON.stringify({ 
+                    type: 'STATE', 
+                    board: room.board, 
+                    winner: winner,
+                    isDraw: isDraw,
+                    hubbySymbol: room.roles.Hubby === 'w' ? 'X' : 'O',
+                    wiifuSymbol: room.roles.Wiifu === 'w' ? 'X' : 'O'
+                });
+
+                // 4. Broadcast to the couple
+                room.clients.forEach((role, client) => { 
+                    if (client.readyState === 1) client.send(stateRes); 
+                });
+                return; 
             }
 
             const drawByRepetition = room.history.filter(b => b === room.board.join(',')).length >= 3;
