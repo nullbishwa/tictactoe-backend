@@ -5,7 +5,7 @@ const port = process.env.PORT || 8080;
 
 const server = http.createServer((req, res) => {
     res.writeHead(200);
-    res.end(req.url === '/ping' ? "I am awake!" : "Advanced Multi-Game Server Running");
+    res.end(req.url === '/ping' ? "I am awake!" : "Pro Multi-Game Server Running");
 });
 
 const wss = new WebSocketServer({ server });
@@ -19,8 +19,8 @@ const initialChessBoard = [
     "wR", "wN", "wB", "wQ", "wK", "wB", "wN", "wR"
 ];
 
-// --- CORE CHESS VALIDATION ---
-function isMoveLegal(from, to, board, playerColor) {
+// --- ADVANCED CHESS VALIDATION ENGINE ---
+function isMoveLegal(from, to, board, playerColor, state) {
     const piece = board[from];
     if (!piece || piece[0] !== playerColor) return false;
     const target = board[to];
@@ -32,20 +32,32 @@ function isMoveLegal(from, to, board, playerColor) {
     const colDiff = Math.abs(toCol - fromCol);
 
     switch (piece[1]) {
-        case 'P': // Pawn Logic
+        case 'P': // Pawn Logic including En Passant
             const dir = playerColor === 'w' ? -1 : 1;
-            // Forward move
+            // Normal move
             if (fromCol === toCol && !target) {
                 if (toRow === fromRow + dir) return true;
                 if (fromRow === (playerColor === 'w' ? 6 : 1) && toRow === fromRow + 2 * dir && !board[from + 8 * dir]) return true;
             }
-            // Capture
-            return (colDiff === 1 && toRow === fromRow + dir && target);
+            // Normal capture
+            if (colDiff === 1 && toRow === fromRow + dir && target) return true;
+            // En Passant capture
+            if (colDiff === 1 && toRow === fromRow + dir && !target && state.enPassantTarget === to) return true;
+            return false;
+
         case 'R': return (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
         case 'B': return (rowDiff === colDiff) && isPathClear(from, to, board);
         case 'Q': return (rowDiff === colDiff || fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
         case 'N': return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
-        case 'K': return rowDiff <= 1 && colDiff <= 1;
+        
+        case 'K': // King including Castling
+            if (rowDiff <= 1 && colDiff <= 1) return true;
+            // Castling Logic
+            if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
+                const rookIdx = toCol > fromCol ? from + 3 : from - 4;
+                if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) return true;
+            }
+            return false;
         default: return false;
     }
 }
@@ -63,14 +75,14 @@ function isPathClear(from, to, board) {
     return true;
 }
 
-// --- ADVANCED CHECK DETECTION ---
-function isKingInCheck(board, color) {
+function isKingInCheck(board, color, state) {
     const kingPos = board.indexOf(color + 'K');
     if (kingPos === -1) return false;
-    const enemyColor = color === 'w' ? 'b' : 'w';
+    const enemy = color === 'w' ? 'b' : 'w';
     for (let i = 0; i < 64; i++) {
-        if (board[i] && board[i][0] === enemyColor) {
-            if (isMoveLegal(i, kingPos, board, enemyColor)) return true;
+        if (board[i] && board[i][0] === enemy) {
+            // Simplified check to avoid recursion
+            if (isMoveLegal(i, kingPos, board, enemy, { ...state, enPassantTarget: -1 })) return true;
         }
     }
     return false;
@@ -84,7 +96,11 @@ wss.on('connection', (ws, req) => {
     if (!rooms.has(roomId)) {
         rooms.set(roomId, {
             board: size === 8 ? [...initialChessBoard] : Array(size * size).fill(null),
-            clients: new Map(), size, turn: 'w'
+            clients: new Map(), size, turn: 'w',
+            movedPieces: new Set(),
+            enPassantTarget: -1,
+            history: [], // For Draw by Repetition
+            halfMoveClock: 0 // For 50-Move Rule
         });
     }
 
@@ -106,44 +122,76 @@ wss.on('connection', (ws, req) => {
 
             if (msg.type === 'RESET') {
                 room.board = size === 8 ? [...initialChessBoard] : Array(size * size).fill(null);
-                room.turn = 'w';
+                room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
+                room.history = []; room.halfMoveClock = 0;
             } 
             else if (size === 8 && msg.type === 'MOVE') {
                 if (room.turn !== playerSymbol) return;
-                
-                if (isMoveLegal(msg.from, msg.to, room.board, playerSymbol)) {
+
+                if (isMoveLegal(msg.from, msg.to, room.board, playerSymbol, room)) {
                     const tempBoard = [...room.board];
-                    tempBoard[msg.to] = tempBoard[msg.from];
+                    const piece = tempBoard[msg.from];
+                    const isPawn = piece[1] === 'P';
+                    const isCapture = tempBoard[msg.to] !== null;
+
+                    // Execute Move
+                    tempBoard[msg.to] = piece;
                     tempBoard[msg.from] = null;
 
-                    // ADVANCED: Block move if it leaves own King in Check
-                    if (!isKingInCheck(tempBoard, playerSymbol)) {
+                    // Handle Special Rules
+                    // 1. En Passant Capture
+                    if (isPawn && msg.to === room.enPassantTarget) {
+                        tempBoard[msg.to + (playerSymbol === 'w' ? 8 : -8)] = null;
+                    }
+                    // 2. Castling (Moving the Rook)
+                    if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
+                        const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
+                        const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
+                        tempBoard[rookTo] = tempBoard[rookFrom];
+                        tempBoard[rookFrom] = null;
+                        room.movedPieces.add(rookFrom);
+                    }
+
+                    // Self-Check Prevention
+                    if (!isKingInCheck(tempBoard, playerSymbol, room)) {
                         room.board = tempBoard;
+                        room.movedPieces.add(msg.from);
                         
-                        // ADVANCED: Auto-Promote Pawn to Queen
+                        // 3. Pawn Promotion
                         const row = Math.floor(msg.to / 8);
-                        if (room.board[msg.to] === 'wP' && row === 0) room.board[msg.to] = 'wQ';
-                        if (room.board[msg.to] === 'bP' && row === 7) room.board[msg.to] = 'bQ';
+                        if (isPawn && (row === 0 || row === 7)) room.board[msg.to] = playerSymbol + 'Q';
+
+                        // 4. Update En Passant Target
+                        room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
+
+                        // 5. Half-move clock (50-move rule)
+                        if (isPawn || isCapture) room.halfMoveClock = 0;
+                        else room.halfMoveClock++;
 
                         room.turn = room.turn === 'w' ? 'b' : 'w';
-                    } else {
-                        ws.send(JSON.stringify({ type: 'ERROR', message: "Illegal: King in Check!" }));
-                        return;
+
+                        // 6. Draw by Repetition History
+                        room.history.push(room.board.join(','));
                     }
                 }
             } else if (size !== 8) {
                 room.board[msg.index] = msg.symbol;
             }
 
+            // Draw Check Logic
+            const drawByRepetition = room.history.filter(b => b === room.board.join(',')).length >= 3;
+            const drawBy50Move = room.halfMoveClock >= 100; // 50 full moves = 100 half moves
+
             const stateRes = JSON.stringify({ 
                 type: 'STATE', 
                 board: room.board, 
                 turn: room.turn,
                 winner: size === 8 ? null : checkWinner(room.board, room.size),
-                inCheck: size === 8 ? isKingInCheck(room.board, room.turn) : false 
+                isDraw: drawByRepetition || drawBy50Move || (size !== 8 && !room.board.includes(null)),
+                drawReason: drawByRepetition ? "Repetition" : (drawBy50Move ? "50-Move Rule" : null)
             });
             room.clients.forEach((s, c) => { if (c.readyState === 1) c.send(stateRes); });
-        } catch (e) { console.log("JSON Error"); }
+        } catch (e) { console.log("JSON Error", e); }
     });
 
     ws.on('close', () => {
@@ -157,7 +205,6 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Reuse your original checkWinner function for Tic-Tac-Toe
 function checkWinner(board, size) {
     for (let i = 0; i < size; i++) {
         let row = board.slice(i * size, (i + 1) * size);
@@ -176,4 +223,4 @@ function checkWinner(board, size) {
     return null;
 }
 
-server.listen(port, () => console.log(`Advanced Multi-Game Server on port ${port}`));
+server.listen(port, () => console.log(`Pro Server on port ${port}`));
