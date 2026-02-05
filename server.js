@@ -32,27 +32,21 @@ function isMoveLegal(from, to, board, playerColor, state) {
     const colDiff = Math.abs(toCol - fromCol);
 
     switch (piece[1]) {
-        case 'P': // Pawn Logic including En Passant
+        case 'P': 
             const dir = playerColor === 'w' ? -1 : 1;
-            // Normal move
             if (fromCol === toCol && !target) {
                 if (toRow === fromRow + dir) return true;
                 if (fromRow === (playerColor === 'w' ? 6 : 1) && toRow === fromRow + 2 * dir && !board[from + 8 * dir]) return true;
             }
-            // Normal capture
             if (colDiff === 1 && toRow === fromRow + dir && target) return true;
-            // En Passant capture
             if (colDiff === 1 && toRow === fromRow + dir && !target && state.enPassantTarget === to) return true;
             return false;
-
         case 'R': return (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
         case 'B': return (rowDiff === colDiff) && isPathClear(from, to, board);
         case 'Q': return (rowDiff === colDiff || fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
         case 'N': return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
-        
-        case 'K': // King including Castling
+        case 'K': 
             if (rowDiff <= 1 && colDiff <= 1) return true;
-            // Castling Logic
             if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
                 const rookIdx = toCol > fromCol ? from + 3 : from - 4;
                 if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) return true;
@@ -81,7 +75,6 @@ function isKingInCheck(board, color, state) {
     const enemy = color === 'w' ? 'b' : 'w';
     for (let i = 0; i < 64; i++) {
         if (board[i] && board[i][0] === enemy) {
-            // Simplified check to avoid recursion
             if (isMoveLegal(i, kingPos, board, enemy, { ...state, enPassantTarget: -1 })) return true;
         }
     }
@@ -99,15 +92,21 @@ wss.on('connection', (ws, req) => {
             clients: new Map(), size, turn: 'w',
             movedPieces: new Set(),
             enPassantTarget: -1,
-            history: [], // For Draw by Repetition
-            halfMoveClock: 0 // For 50-Move Rule
+            history: [],
+            halfMoveClock: 0
         });
     }
 
     const room = rooms.get(roomId);
+    
+    // FIX: Assign symbols and immediately inform the specific client
     const playerSymbol = size === 8 ? (room.clients.size === 0 ? 'w' : 'b') : (room.clients.size === 0 ? 'X' : 'O');
     room.clients.set(ws, playerSymbol);
 
+    // FIX: Send explicit assignment message
+    ws.send(JSON.stringify({ type: 'ASSIGN_COLOR', color: playerSymbol }));
+
+    // Send initial state
     ws.send(JSON.stringify({ type: 'STATE', board: room.board, turn: room.turn, myColor: playerSymbol }));
 
     ws.on('message', (data) => {
@@ -134,16 +133,12 @@ wss.on('connection', (ws, req) => {
                     const isPawn = piece[1] === 'P';
                     const isCapture = tempBoard[msg.to] !== null;
 
-                    // Execute Move
                     tempBoard[msg.to] = piece;
                     tempBoard[msg.from] = null;
 
-                    // Handle Special Rules
-                    // 1. En Passant Capture
                     if (isPawn && msg.to === room.enPassantTarget) {
                         tempBoard[msg.to + (playerSymbol === 'w' ? 8 : -8)] = null;
                     }
-                    // 2. Castling (Moving the Rook)
                     if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
                         const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
                         const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
@@ -152,25 +147,15 @@ wss.on('connection', (ws, req) => {
                         room.movedPieces.add(rookFrom);
                     }
 
-                    // Self-Check Prevention
                     if (!isKingInCheck(tempBoard, playerSymbol, room)) {
                         room.board = tempBoard;
                         room.movedPieces.add(msg.from);
-                        
-                        // 3. Pawn Promotion
                         const row = Math.floor(msg.to / 8);
                         if (isPawn && (row === 0 || row === 7)) room.board[msg.to] = playerSymbol + 'Q';
-
-                        // 4. Update En Passant Target
                         room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
-
-                        // 5. Half-move clock (50-move rule)
                         if (isPawn || isCapture) room.halfMoveClock = 0;
                         else room.halfMoveClock++;
-
                         room.turn = room.turn === 'w' ? 'b' : 'w';
-
-                        // 6. Draw by Repetition History
                         room.history.push(room.board.join(','));
                     }
                 }
@@ -178,9 +163,8 @@ wss.on('connection', (ws, req) => {
                 room.board[msg.index] = msg.symbol;
             }
 
-            // Draw Check Logic
             const drawByRepetition = room.history.filter(b => b === room.board.join(',')).length >= 3;
-            const drawBy50Move = room.halfMoveClock >= 100; // 50 full moves = 100 half moves
+            const drawBy50Move = room.halfMoveClock >= 100;
 
             const stateRes = JSON.stringify({ 
                 type: 'STATE', 
