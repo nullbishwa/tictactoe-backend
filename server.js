@@ -80,6 +80,26 @@ function isKingInCheck(board, color, state) {
     }
     return false;
 }
+// NEW: Simulation helper to see if a move is safe
+function simulateMove(board, from, to) {
+    const newBoard = [...board];
+    newBoard[to] = newBoard[from];
+    newBoard[from] = null;
+    return newBoard;
+}
+
+// NEW: Check if player has any legal moves left (for Mate/Stalemate)
+function hasLegalMoves(board, color, state) {
+    for (let i = 0; i < 64; i++) {
+        if (board[i] && board[i][0] === color) {
+            for (let j = 0; j < 64; j++) {
+                // Pass true to avoid infinite recursion loops
+                if (isMoveLegal(i, j, board, color, state, true)) return true;
+            }
+        }
+    }
+    return false;
+}
 
 wss.on('connection', (ws, req) => {
     const parts = req.url.split('/');
