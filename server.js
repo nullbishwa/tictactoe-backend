@@ -179,7 +179,10 @@ wss.on('connection', (ws, req) => {
 
             if (msg.type === 'RESET') {
                 room.board = size === 8 ? [...initialChessBoard] : Array(size * size).fill(null);
-                room.turn else if (size === 8 && msg.type === 'MOVE') {
+                room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
+                room.history = []; room.halfMoveClock = 0;
+            } 
+            else if (size === 8 && msg.type === 'MOVE') {
     if (room.turn !== myColor) return;
 
     if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
@@ -227,11 +230,8 @@ wss.on('connection', (ws, req) => {
             return;
         }
     }
-}
-= 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
-                room.history = []; room.halfMoveClock = 0;
-            } 
-            
+            }
+                
             else if (size !== 8) {
                 // --- HUBBY & WIIFU TIC-TAC-TOE LOGIC ---
                 
