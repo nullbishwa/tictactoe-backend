@@ -20,7 +20,16 @@ const initialChessBoard = [
 ];
 
 // --- ADVANCED CHESS VALIDATION ENGINE ---
-function isMoveLegal(from, to, board, playerColor, state) {
+// --- HELPER: SIMULATE MOVE ---
+function simulateMove(board, from, to) {
+    const newBoard = [...board];
+    newBoard[to] = newBoard[from];
+    newBoard[from] = null;
+    return newBoard;
+}
+
+// --- ADVANCED CHESS VALIDATION ENGINE ---
+function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false) {
     const piece = board[from];
     if (!piece || piece[0] !== playerColor) return false;
     const target = board[to];
@@ -31,29 +40,44 @@ function isMoveLegal(from, to, board, playerColor, state) {
     const rowDiff = Math.abs(toRow - fromRow);
     const colDiff = Math.abs(toCol - fromCol);
 
+    let isBasicMoveLegal = false;
+
     switch (piece[1]) {
         case 'P': 
             const dir = playerColor === 'w' ? -1 : 1;
             if (fromCol === toCol && !target) {
-                if (toRow === fromRow + dir) return true;
-                if (fromRow === (playerColor === 'w' ? 6 : 1) && toRow === fromRow + 2 * dir && !board[from + 8 * dir]) return true;
+                if (toRow === fromRow + dir) isBasicMoveLegal = true;
+                else if (fromRow === (playerColor === 'w' ? 6 : 1) && toRow === fromRow + 2 * dir && !board[from + 8 * dir]) isBasicMoveLegal = true;
+            } else if (colDiff === 1 && toRow === fromRow + dir) {
+                if (target || state.enPassantTarget === to) isBasicMoveLegal = true;
             }
-            if (colDiff === 1 && toRow === fromRow + dir && target) return true;
-            if (colDiff === 1 && toRow === fromRow + dir && !target && state.enPassantTarget === to) return true;
-            return false;
-        case 'R': return (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
-        case 'B': return (rowDiff === colDiff) && isPathClear(from, to, board);
-        case 'Q': return (rowDiff === colDiff || fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board);
-        case 'N': return (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2);
+            break;
+        case 'R': isBasicMoveLegal = (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board); break;
+        case 'B': isBasicMoveLegal = (rowDiff === colDiff) && isPathClear(from, to, board); break;
+        case 'Q': isBasicMoveLegal = (rowDiff === colDiff || fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board); break;
+        case 'N': isBasicMoveLegal = (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2); break;
         case 'K': 
-            if (rowDiff <= 1 && colDiff <= 1) return true;
-            if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
-                const rookIdx = toCol > fromCol ? from + 3 : from - 4;
-                if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) return true;
+            if (rowDiff <= 1 && colDiff <= 1) isBasicMoveLegal = true;
+            // CASTLING RULES (Video: No check, no jumping pieces, no crossing check)
+            else if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
+                const isKingside = toCol > fromCol;
+                const rookIdx = isKingside ? from + 3 : from - 4;
+                if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) {
+                    if (!isKingInCheck(board, playerColor, state)) {
+                        const step = isKingside ? 1 : -1;
+                        if (!isKingInCheck(simulateMove(board, from, from + step), playerColor, state)) isBasicMoveLegal = true;
+                    }
+                }
             }
-            return false;
-        default: return false;
+            break;
     }
+
+    if (!isBasicMoveLegal) return false;
+    if (skipKingCheck) return true; // Prevents infinite recursion during check-checking
+
+    // RULE: You cannot end your turn in Check
+    const nextBoard = simulateMove(board, from, to);
+    return !isKingInCheck(nextBoard, playerColor, state);
 }
 
 function isPathClear(from, to, board) {
@@ -75,11 +99,24 @@ function isKingInCheck(board, color, state) {
     const enemy = color === 'w' ? 'b' : 'w';
     for (let i = 0; i < 64; i++) {
         if (board[i] && board[i][0] === enemy) {
-            if (isMoveLegal(i, kingPos, board, enemy, { ...state, enPassantTarget: -1 })) return true;
+            // Check legality without self-check recursion
+            if (isMoveLegal(i, kingPos, board, enemy, { ...state, enPassantTarget: -1 }, true)) return true;
         }
     }
     return false;
 }
+
+function hasLegalMoves(board, color, state) {
+    for (let i = 0; i < 64; i++) {
+        if (board[i] && board[i][0] === color) {
+            for (let j = 0; j < 64; j++) {
+                if (isMoveLegal(i, j, board, color, state)) return true;
+            }
+        }
+    }
+    return false;
+}
+
 
 wss.on('connection', (ws, req) => {
     const parts = req.url.split('/');
@@ -142,46 +179,59 @@ wss.on('connection', (ws, req) => {
 
             if (msg.type === 'RESET') {
                 room.board = size === 8 ? [...initialChessBoard] : Array(size * size).fill(null);
-                room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
+                room.turn else if (size === 8 && msg.type === 'MOVE') {
+    if (room.turn !== myColor) return;
+
+    if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
+        let tempBoard = simulateMove(room.board, msg.from, msg.to);
+        const piece = room.board[msg.from];
+        const isPawn = piece[1] === 'P';
+
+        // 1. Handle En Passant Capture
+        if (isPawn && msg.to === room.enPassantTarget) {
+            tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
+        }
+
+        // 2. Handle Castling (Rook movement)
+        if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
+            const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
+            const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
+            tempBoard[rookTo] = tempBoard[rookFrom];
+            tempBoard[rookFrom] = null;
+            room.movedPieces.add(rookFrom);
+        }
+
+        // 3. Handle Pawn Promotion (Auto-Queen)
+        const row = Math.floor(msg.to / 8);
+        if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
+
+        // 4. Update Game State
+        room.board = tempBoard;
+        room.movedPieces.add(msg.from);
+        room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
+        room.turn = room.turn === 'w' ? 'b' : 'w';
+
+        // 5. Checkmate / Stalemate Detection
+        const nextMoves = hasLegalMoves(room.board, room.turn, room);
+        const inCheck = isKingInCheck(room.board, room.turn, room);
+
+        if (!nextMoves) {
+            const finalState = JSON.stringify({ 
+                type: 'STATE', board: room.board, turn: room.turn,
+                winner: inCheck ? myRole : null, 
+                isDraw: !inCheck,
+                drawReason: !inCheck ? "Stalemate" : null,
+                hubbyColor: room.roles.Hubby, wiifuColor: room.roles.Wiifu
+            });
+            room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(finalState); });
+            return;
+        }
+    }
+}
+= 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
                 room.history = []; room.halfMoveClock = 0;
             } 
-            else if (size === 8 && msg.type === 'MOVE') {
-                // Critical Turn Check: Match myColor with current turn
-                if (room.turn !== myColor) return;
-
-                if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
-                    const tempBoard = [...room.board];
-                    const piece = tempBoard[msg.from];
-                    const isPawn = piece[1] === 'P';
-                    const isCapture = tempBoard[msg.to] !== null;
-
-                    tempBoard[msg.to] = piece;
-                    tempBoard[msg.from] = null;
-
-                    if (isPawn && msg.to === room.enPassantTarget) {
-                        tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
-                    }
-                    if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
-                        const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
-                        const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
-                        tempBoard[rookTo] = tempBoard[rookFrom];
-                        tempBoard[rookFrom] = null;
-                        room.movedPieces.add(rookFrom);
-                    }
-
-                    if (!isKingInCheck(tempBoard, myColor, room)) {
-                        room.board = tempBoard;
-                        room.movedPieces.add(msg.from);
-                        const row = Math.floor(msg.to / 8);
-                        if (isPawn && (row === 0 || row === 7)) room.board[msg.to] = myColor + 'Q';
-                        room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
-                        if (isPawn || isCapture) room.halfMoveClock = 0;
-                        else room.halfMoveClock++;
-                        room.turn = room.turn === 'w' ? 'b' : 'w';
-                        room.history.push(room.board.join(','));
-                    }
-                }
-            } 
+            
             else if (size !== 8) {
                 // --- HUBBY & WIIFU TIC-TAC-TOE LOGIC ---
                 
