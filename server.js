@@ -11,6 +11,14 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
+// --- LUDO CONSTANTS & CONFIG ---
+// --- LUDO CONSTANTS & CONFIG ---
+const LUDO_CONFIG = {
+    SAFE_SQUARES: [1, 9, 14, 22, 27, 35, 40, 48], // Relative to start
+    START_INDICES: { red: 0, blue: 13, yellow: 26, green: 39 },
+    MAX_STEPS: 57 // 51 path squares + 6 home stretch squares
+};
+
 const initialChessBoard = [
     "bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR",
     "bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP",
@@ -150,7 +158,19 @@ wss.on('connection', (ws, req) => {
             roles: {
                 Hubby: hubbyIsWhite ? 'w' : 'b',
                 Wiifu: hubbyIsWhite ? 'b' : 'w'
-            }
+            },
+            gameType: size === 15 ? 'LUDO' : (size === 8 ? 'CHESS' : 'TTT'),
+            pawnSteps: {
+                red: [-1, -1, -1, -1],
+                yellow: [-1, -1, -1, -1],
+                blue: [-1, -1, -1, -1],
+                green: [-1, -1, -1, -1]
+            },
+            turnColor: 'red',
+            activeColors: ['red', 'yellow'],
+            diceRolled: false,
+            lastRoll: 0,
+            consecutiveSixes: 0
         });
     }
 
@@ -164,20 +184,27 @@ wss.on('connection', (ws, req) => {
     room.clients.set(ws, myRole);
     const myColor = room.roles[myRole] || 'observer';
 
-    // Inform the client of their personal identity
+
+
     ws.send(JSON.stringify({
         type: 'ASSIGN_ROLE',
         role: myRole,
-        color: myColor
+        color: myColor,
+        ludoColor: myRole === "Hubby" ? "red" : "yellow"
     }));
 
-    // Send the current state
+    // Update the initial STATE send
     ws.send(JSON.stringify({
         type: 'STATE',
+        gameType: room.gameType,
         board: room.board,
         turn: room.turn,
         hubbyColor: room.roles.Hubby,
-        wiifuColor: room.roles.Wiifu
+        wiifuColor: room.roles.Wiifu,
+        pawnSteps: room.pawnSteps,
+        turnColor: room.turnColor,
+        lastRoll: room.lastRoll,
+        diceRolled: room.diceRolled
     }));
 
     ws.on('message', (data) => {
@@ -194,6 +221,68 @@ wss.on('connection', (ws, req) => {
                 room.board = size === 8 ? [...initialChessBoard] : Array(size * size).fill(null);
                 room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
                 room.history = []; room.halfMoveClock = 0;
+            }
+            // --- LUDO: ROLL DICE ---
+            // --- LUDO: ROLL DICE ---
+            if (msg.type === 'LUDO_ROLL') {
+                if (room.turnColor !== msg.color || room.diceRolled) return;
+                const roll = Math.floor(Math.random() * 6) + 1;
+                room.lastRoll = roll; room.diceRolled = true;
+
+                if (roll === 6) room.consecutiveSixes++; else room.consecutiveSixes = 0;
+
+                if (room.consecutiveSixes === 3) {
+                    room.consecutiveSixes = 0; room.diceRolled = false;
+                    room.turnColor = getNextLudoPlayer(room);
+                }
+                broadcastLudoState(room);
+                return;
+            }
+
+            // --- LUDO: MOVE PAWN ---
+            else if (msg.type === 'LUDO_MOVE') {
+                const { color, pawnIndex } = msg;
+                const roll = room.lastRoll;
+                if (room.turnColor !== color || !room.diceRolled) return;
+
+                if (canMoveLudoPawn(color, pawnIndex, roll, room)) {
+                    let getsBonus = (roll === 6);
+                    if (room.pawnSteps[color][pawnIndex] === -1) room.pawnSteps[color][pawnIndex] = 0;
+                    else room.pawnSteps[color][pawnIndex] += roll;
+
+                    const newSteps = room.pawnSteps[color][pawnIndex];
+                    if (newSteps === LUDO_CONFIG.MAX_STEPS) getsBonus = true;
+
+                    // --- FULL RULES CAPTURE LOGIC ---
+                    if (newSteps < 51 && !LUDO_CONFIG.SAFE_SQUARES.includes(newSteps)) {
+                        const myGlobalPos = (newSteps + LUDO_CONFIG.START_INDICES[color]) % 52;
+                        for (let opp in room.pawnSteps) {
+                            if (opp === color) continue;
+                            room.pawnSteps[opp].forEach((oppS, idx) => {
+                                if (oppS >= 0 && oppS < 51) {
+                                    const oppGlobal = (oppS + LUDO_CONFIG.START_INDICES[opp]) % 52;
+                                    const isOpponentSafe = LUDO_CONFIG.SAFE_SQUARES.includes(oppS);
+                                    if (oppGlobal === myGlobalPos && !isOpponentSafe) {
+                                        room.pawnSteps[opp][idx] = -1; // Send opponent to base
+                                        getsBonus = true; // Extra turn for capturing
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    // --- WINNER DETECTION ---
+                    if (room.pawnSteps[color].every(s => s === LUDO_CONFIG.MAX_STEPS)) {
+                        const winRes = JSON.stringify({ type: 'STATE', gameType: 'LUDO', winner: color });
+                        room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(winRes); });
+                        return;
+                    }
+
+                    if (!getsBonus) room.turnColor = getNextLudoPlayer(room);
+                    room.diceRolled = false;
+                    broadcastLudoState(room);
+                }
+                return;
             }
             else if (size === 8 && msg.type === 'MOVE') {
                 if (room.turn !== myColor) return;
@@ -315,6 +404,30 @@ wss.on('connection', (ws, req) => {
     });
 });
 
+function getNextLudoPlayer(room) {
+    const colors = room.activeColors;
+    const currentIndex = colors.indexOf(room.turnColor);
+    return colors[(currentIndex + 1) % colors.length];
+}
+
+function canMoveLudoPawn(color, pawnIndex, roll, room) {
+    const steps = room.pawnSteps[color][pawnIndex];
+    if (steps === -1) return roll === 6;
+    if (steps + roll > LUDO_CONFIG.MAX_STEPS) return false;
+    return true;
+}
+
+function broadcastLudoState(room) {
+    const res = JSON.stringify({
+        type: 'STATE', 
+        gameType: 'LUDO',
+        pawnSteps: room.pawnSteps, 
+        turnColor: room.turnColor,
+        lastRoll: room.lastRoll, 
+        diceRolled: room.diceRolled
+    });
+    room.clients.forEach((role, client) => { if (client.readyState === 1) client.send(res); });
+}
 function checkWinner(board, size) {
     for (let i = 0; i < size; i++) {
         let row = board.slice(i * size, (i + 1) * size);
