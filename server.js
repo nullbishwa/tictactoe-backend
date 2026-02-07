@@ -334,3 +334,5 @@ function checkWinner(board, size) {
 }
 
 server.listen(port, () => console.log(`Hubby & Wiifu Server on ${port}`));
+
+now give me teh gemini agnet prompt to implement thsi ful cod ein android app side 
