@@ -58,14 +58,19 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
         case 'N': isBasicMoveLegal = (rowDiff === 2 && colDiff === 1) || (rowDiff === 1 && colDiff === 2); break;
         case 'K':
             if (rowDiff <= 1 && colDiff <= 1) isBasicMoveLegal = true;
-            // CASTLING RULES (Video: No check, no jumping pieces, no crossing check)
-            else if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
+            // --- UPDATED CASTLING SAFETY ---
+            else if (!skipKingCheck && rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
                 const isKingside = toCol > fromCol;
                 const rookIdx = isKingside ? from + 3 : from - 4;
                 if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) {
+                    // Cannot castle if currently in check
                     if (!isKingInCheck(board, playerColor, state)) {
                         const step = isKingside ? 1 : -1;
-                        if (!isKingInCheck(simulateMove(board, from, from + step), playerColor, state)) isBasicMoveLegal = true;
+                        // Cannot pass through a square that is under attack
+                        const intermediateBoard = simulateMove(board, from, from + step);
+                        if (!isKingInCheck(intermediateBoard, playerColor, state)) {
+                            isBasicMoveLegal = true;
+                        }
                     }
                 }
             }
