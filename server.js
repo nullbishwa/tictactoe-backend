@@ -191,6 +191,7 @@ wss.on('connection', (ws, req) => {
         try {
             const msg = JSON.parse(data);
 
+            // --- 1. ADD THIS AT THE TOP OF ws.on('message') ---
             if (msg.type === 'QUIT_REQUEST') {
                 const res = JSON.stringify({ type: 'QUIT_PROMPT', sender: myRole });
                 room.clients.forEach((role, client) => {
