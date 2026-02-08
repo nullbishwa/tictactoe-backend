@@ -233,33 +233,30 @@ wss.on('connection', (ws, req) => {
                     room.movedPieces.add(msg.from);
                     room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
                     room.turn = room.turn === 'w' ? 'b' : 'w';
+                                        // 5. Checkmate / Stalemate Detection
+                    const nextMoves = hasLegalMoves(room.board, room.turn, room);
+                    const inCheck = isKingInCheck(room.board, room.turn, room); 
+
+                    if (!nextMoves) {
+                        const finalState = JSON.stringify({
+                            type: 'STATE', 
+                            board: room.board, 
+                            turn: room.turn,
+                            // THE FIX: If 'inCheck' is true, the person who JUST moved (myRole) is the winner
+                            winner: inCheck ? myRole : null, 
+                            isDraw: !inCheck,
+                            inCheck: inCheck,
+                            hubbyColor: room.roles.Hubby, 
+                            wiifuColor: room.roles.Wiifu
+                        });
+                        room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(finalState); });
+                        return;
+                    }
 
                     // 5. Checkmate / Stalemate Detection
                     // ... inside if (size === 8 && msg.type === 'MOVE')
                     // 5. Checkmate / Stalemate Detection
-                    const nextMoves = hasLegalMoves(room.board, room.turn, room);
-                    const inCheck = isKingInCheck(room.board, room.turn, room); // Check the player whose turn it now is
-
-                    if (!nextMoves) {
-                        const finalState = JSON.stringify({
-                            type: 'STATE', board: room.board, turn: room.turn,
-                            winner: inCheck ? myRole : null, // If in check and no moves, current sender wins
-                            isDraw: !inCheck,
-                            inCheck: inCheck, // Tell the app if the king is currently threatened
-                            drawReason: !inCheck ? "Stalemate" : null,
-                            hubbyColor: room.roles.Hubby, wiifuColor: room.roles.Wiifu
-                        });
-                        room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(finalState); });
-                        return;
-                    } else {
-                        // Normal broadcast with inCheck status for the pulsing animation
-                        const stateRes = JSON.stringify({
-                            type: 'STATE', board: room.board, turn: room.turn,
-                            inCheck: inCheck,
-                            hubbyColor: room.roles.Hubby, wiifuColor: room.roles.Wiifu
-                        });
-                        room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(stateRes); });
-                    }
+                    
                 }
             }
 
