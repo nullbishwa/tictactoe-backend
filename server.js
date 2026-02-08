@@ -89,11 +89,11 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     }
 
     if (!isBasicMoveLegal) return false;
-    if (skipKingCheck) return true; // Prevents infinite recursion during check-checking
-
+    //if (skipKingCheck) return true; // Prevents infinite recursion during check-checking
+    return true;
     // RULE: You cannot end your turn in Check
-    const nextBoard = simulateMove(board, from, to);
-    return !isKingInCheck(nextBoard, playerColor, state);
+    //const nextBoard = simulateMove(board, from, to);
+    //return !isKingInCheck(nextBoard, playerColor, state);
 }
 
 function isPathClear(from, to, board) {
