@@ -200,7 +200,8 @@ wss.on('connection', (ws, req) => {
                 room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
                 room.history = []; room.halfMoveClock = 0;
             }
-                                   else if (size === 8 && msg.type === 'MOVE') {
+                                   
+            else if (size === 8 && msg.type === 'MOVE') {
     if (room.turn !== myColor) return;
 
     if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
@@ -208,12 +209,10 @@ wss.on('connection', (ws, req) => {
         const piece = room.board[msg.from];
         const isPawn = piece[1] === 'P';
 
-        // 1. Handle En Passant Capture
+        // --- Standard Logic (En Passant, Castling, Promotion) ---
         if (isPawn && msg.to === room.enPassantTarget) {
             tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
         }
-
-        // 2. Handle Castling (Rook movement)
         if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
             const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
             const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
@@ -221,44 +220,41 @@ wss.on('connection', (ws, req) => {
             tempBoard[rookFrom] = null;
             room.movedPieces.add(rookFrom);
         }
-
-        // 3. Handle Pawn Promotion (Auto-Queen)
         const row = Math.floor(msg.to / 8);
         if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
 
-        // 4. Update Game State
+        // --- Apply Move ---
         room.board = tempBoard;
         room.movedPieces.add(msg.from);
         room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
 
-        // 5. Swap Turn
+        // --- THE CRITICAL FIX: CHANGE TURN THEN SCAN ---
         room.turn = room.turn === 'w' ? 'b' : 'w';
-
-        // 6. Checkmate / Stalemate Detection
         const enemyColor = room.turn; 
+        
+        // This checks if the person whose turn it just became is in trouble
         const inCheck = isKingInCheck(room.board, enemyColor, room);
-        const nextMoves = hasLegalMoves(room.board, enemyColor, room);
+        const nextMovesAvailable = hasLegalMoves(room.board, enemyColor, room);
 
-        let winner = null;
-        let isDraw = false;
+        let gameWinner = null;
+        let gameIsDraw = false;
 
-        if (!nextMoves) {
+        if (!nextMovesAvailable) {
             if (inCheck) {
-                // The current 'myRole' wins because they put the other person in Checkmate
-                winner = myRole; 
+                // Checkmate! The current player (Hubby/Wiifu) wins.
+                gameWinner = myRole; 
             } else {
-                isDraw = true;
+                gameIsDraw = true; // Stalemate
             }
         }
 
-        // 7. Final Broadcast for this move
         const stateRes = JSON.stringify({
             type: 'STATE',
             board: room.board,
             turn: room.turn,
             inCheck: inCheck,
-            winner: winner,
-            isDraw: isDraw,
+            winner: gameWinner, // If this is Hubby, the UI should stop the game
+            isDraw: gameIsDraw,
             hubbyColor: room.roles.Hubby,
             wiifuColor: room.roles.Wiifu
         });
@@ -267,9 +263,10 @@ wss.on('connection', (ws, req) => {
             if (client.readyState === 1) client.send(stateRes);
         });
 
-        return; // IMPORTANT: Prevent the code below this block from running
+        return; 
     }
 }
+
 
 
             else if (size !== 8) {
