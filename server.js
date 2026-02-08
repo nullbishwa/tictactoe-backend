@@ -51,6 +51,7 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
             } else if (colDiff === 1 && toRow === fromRow + dir) {
                 if (target || state.enPassantTarget === to) isBasicMoveLegal = true;
             }
+            isBasicMoveLegal = true;
             break;
         case 'R': isBasicMoveLegal = (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board); break;
         case 'B': isBasicMoveLegal = (rowDiff === colDiff) && isPathClear(from, to, board); break;
