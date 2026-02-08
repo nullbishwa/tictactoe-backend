@@ -90,9 +90,16 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     }
 
     if (!isBasicMoveLegal) return false;
-    //if (skipKingCheck) return true; // Prevents infinite recursion during check-checking
+
+    // 1. You MUST uncomment this line. 
+    // It prevents the server from getting stuck in a loop.
+    if (skipKingCheck) return true; 
+
+    // 2. This is the "Magic" line for your demo.
+    // By returning true here, you tell the server: 
+    // "I don't care if the King is in danger, let the piece move!"
     return true;
-    // RULE: You cannot end your turn in Check
+    //cannot end your turn in Check
     //const nextBoard = simulateMove(board, from, to);
     //return !isKingInCheck(nextBoard, playerColor, state);
 }
