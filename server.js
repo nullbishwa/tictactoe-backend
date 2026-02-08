@@ -1,4 +1,4 @@
-const { WebSocketServer } = require('ws');
+Const { WebSocketServer } = require('ws');
 const http = require('http');
 
 const port = process.env.PORT || 8080;
@@ -200,74 +200,69 @@ wss.on('connection', (ws, req) => {
                 room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
                 room.history = []; room.halfMoveClock = 0;
             }
-                                   
-            else if (size === 8 && msg.type === 'MOVE') {
-    if (room.turn !== myColor) return;
+            else if (size === 8 && msg.type === 'MOVE') {
+                if (room.turn !== myColor) return;
 
-    if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
-        let tempBoard = simulateMove(room.board, msg.from, msg.to);
-        const piece = room.board[msg.from];
-        const isPawn = piece[1] === 'P';
+                if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
+                    let tempBoard = simulateMove(room.board, msg.from, msg.to);
+                    const piece = room.board[msg.from];
+                    const isPawn = piece[1] === 'P';
 
-        // --- Standard Logic (En Passant, Castling, Promotion) ---
-        if (isPawn && msg.to === room.enPassantTarget) {
-            tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
-        }
-        if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
-            const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
-            const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
-            tempBoard[rookTo] = tempBoard[rookFrom];
-            tempBoard[rookFrom] = null;
-            room.movedPieces.add(rookFrom);
-        }
-        const row = Math.floor(msg.to / 8);
-        if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
+                    // 1. Handle En Passant Capture
+                    if (isPawn && msg.to === room.enPassantTarget) {
+                        tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
+                    }
 
-        // --- Apply Move ---
-        room.board = tempBoard;
-        room.movedPieces.add(msg.from);
-        room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
+                    // 2. Handle Castling (Rook movement)
+                    if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
+                        const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
+                        const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
+                        tempBoard[rookTo] = tempBoard[rookFrom];
+                        tempBoard[rookFrom] = null;
+                        room.movedPieces.add(rookFrom);
+                    }
 
-        // --- THE CRITICAL FIX: CHANGE TURN THEN SCAN ---
-        room.turn = room.turn === 'w' ? 'b' : 'w';
-        const enemyColor = room.turn; 
-        
-        // This checks if the person whose turn it just became is in trouble
-        const inCheck = isKingInCheck(room.board, enemyColor, room);
-        const nextMovesAvailable = hasLegalMoves(room.board, enemyColor, room);
+                    // 3. Handle Pawn Promotion (Auto-Queen)
+                    const row = Math.floor(msg.to / 8);
+                    if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
 
-        let gameWinner = null;
-        let gameIsDraw = false;
+                    // 4. Update Game State
+                    room.board = tempBoard;
+                    room.movedPieces.add(msg.from);
+                    room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
+                    // ... inside the size === 8 && msg.type === 'MOVE' block ...
 
-        if (!nextMovesAvailable) {
-            if (inCheck) {
-                // Checkmate! The current player (Hubby/Wiifu) wins.
-                gameWinner = myRole; 
-            } else {
-                gameIsDraw = true; // Stalemate
-            }
-        }
+                    room.turn = room.turn === 'w' ? 'b' : 'w';
 
-        const stateRes = JSON.stringify({
-            type: 'STATE',
-            board: room.board,
-            turn: room.turn,
-            inCheck: inCheck,
-            winner: gameWinner, // If this is Hubby, the UI should stop the game
-            isDraw: gameIsDraw,
-            hubbyColor: room.roles.Hubby,
-            wiifuColor: room.roles.Wiifu
-        });
+// 1. RE-SCAN THE BOARD IMMEDIATELY
+                    const enemyColor = room.turn; // The player who just got checked
+                    const inCheck = isKingInCheck(room.board, enemyColor, room);
+                    const nextMoves = hasLegalMoves(room.board, enemyColor, room);
 
-        room.clients.forEach((role, client) => {
-            if (client.readyState === 1) client.send(stateRes);
-        });
+// 2. THE DECISION (Force the winner field)
+                    const stateRes = JSON.stringify({
+                            type: 'STATE',
+                            board: room.board,
+                            turn: room.turn,
+                            inCheck: inCheck,
+    // THE FIX: If the enemy is in check and has no moves, Hubby wins!
+                            winner: (!nextMoves && inCheck) ? myRole : null, 
+                            isDraw: (!nextMoves && !inCheck),
+                            hubbyColor: room.roles.Hubby,
+                            wiifuColor: room.roles.Wiifu
+                    });
 
-        return; 
-    }
-}
+// 3. BROADCAST TO BOTH
+                    room.clients.forEach((role, client) => {
+                             if (client.readyState === 1) client.send(stateRes);
+                    });
 
-
+                    // 5. Checkmate / Stalemate Detection
+                    // ... inside if (size === 8 && msg.type === 'MOVE')
+                    // 5. Checkmate / Stalemate Detection
+                    
+                }
+            }
 
             else if (size !== 8) {
                 // --- HUBBY & WIIFU TIC-TAC-TOE LOGIC ---
@@ -347,6 +342,3 @@ function checkWinner(board, size) {
 }
 
 server.listen(port, () => console.log(`Hubby & Wiifu Server on ${port}`));
-
-
-
