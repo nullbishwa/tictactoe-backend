@@ -51,7 +51,6 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
             } else if (colDiff === 1 && toRow === fromRow + dir) {
                 if (target || state.enPassantTarget === to) isBasicMoveLegal = true;
             }
-            isBasicMoveLegal = true;
             break;
         case 'R': isBasicMoveLegal = (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board); break;
         case 'B': isBasicMoveLegal = (rowDiff === colDiff) && isPathClear(from, to, board); break;
@@ -64,11 +63,11 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
             }
             // 2. Castling Logic (Special 2-Square Move)
             else if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
-                          const isKingside = toCol > fromCol;
-    
-    // FIX: Because you moved the King to index 3, 
-    // the distance to the Rooks has changed!
-                          const rookIdx = isKingside ? from + 4 : from - 3;
+                          const isKingside = toCol > fromCol;
+    
+    // FIX: Because you moved the King to index 3, 
+    // the distance to the Rooks has changed!
+                          const rookIdx = isKingside ? from + 4 : from - 3;
 
                 // Rule: Rook must exist and must not have moved
                 if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) {
@@ -90,16 +89,9 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     }
 
     if (!isBasicMoveLegal) return false;
-
-    // 1. You MUST uncomment this line. 
-    // It prevents the server from getting stuck in a loop.
-    if (skipKingCheck) return true; 
-
-    // 2. This is the "Magic" line for your demo.
-    // By returning true here, you tell the server: 
-    // "I don't care if the King is in danger, let the piece move!"
-    return true;
-    //cannot end your turn in Check
+    //if (skipKingCheck) return true; // Prevents infinite recursion during check-checking
+    return true;
+    // RULE: You cannot end your turn in Check
     //const nextBoard = simulateMove(board, from, to);
     //return !isKingInCheck(nextBoard, playerColor, state);
 }
@@ -345,5 +337,4 @@ function checkWinner(board, size) {
 }
 
 server.listen(port, () => console.log(`Hubby & Wiifu Server on ${port}`));
-
-
+is it ok ??
