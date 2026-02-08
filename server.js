@@ -125,14 +125,16 @@ function isKingInCheck(board, color, state) {
 }
 
 function hasLegalMoves(board, color, state) {
-    for (let i = 0; i < 64; i++) {
-        if (board[i] && board[i][0] === color) {
-            for (let j = 0; j < 64; j++) {
-                if (isMoveLegal(i, j, board, color, state)) return true;
-            }
-        }
-    }
-    return false;
+    for (let i = 0; i < 64; i++) {
+        if (board[i] && board[i][0] === color) {
+            for (let j = 0; j < 64; j++) {
+                // IMPORTANT: Pass 'false' as the 6th argument (skipKingCheck)
+                // This ensures we only count moves that actually save the King.
+                if (isMoveLegal(i, j, board, color, state, false)) return true;
+            }
+        }
+    }
+    return false;
 }
 
 
