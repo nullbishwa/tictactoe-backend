@@ -230,26 +230,32 @@ wss.on('connection', (ws, req) => {
                     room.board = tempBoard;
                     room.movedPieces.add(msg.from);
                     room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
-                    room.turn = room.turn === 'w' ? 'b' : 'w';
-                                        // 5. Checkmate / Stalemate Detection
-                    const nextMoves = hasLegalMoves(room.board, room.turn, room);
-                    const inCheck = isKingInCheck(room.board, room.turn, room); 
+                    // ... inside the size === 8 && msg.type === 'MOVE' block ...
 
-                    if (!nextMoves) {
-                        const finalState = JSON.stringify({
-                            type: 'STATE', 
-                            board: room.board, 
+                    room.turn = room.turn === 'w' ? 'b' : 'w';
+
+// 1. RE-SCAN THE BOARD IMMEDIATELY
+                    const enemyColor = room.turn; // The player who just got checked
+                    const inCheck = isKingInCheck(room.board, enemyColor, room);
+                    const nextMoves = hasLegalMoves(room.board, enemyColor, room);
+
+// 2. THE DECISION (Force the winner field)
+                    const stateRes = JSON.stringify({
+                            type: 'STATE',
+                            board: room.board,
                             turn: room.turn,
-                            // THE FIX: If 'inCheck' is true, the person who JUST moved (myRole) is the winner
-                            winner: inCheck ? myRole : null, 
-                            isDraw: !inCheck,
                             inCheck: inCheck,
-                            hubbyColor: room.roles.Hubby, 
+    // THE FIX: If the enemy is in check and has no moves, Hubby wins!
+                            winner: (!nextMoves && inCheck) ? myRole : null, 
+                            isDraw: (!nextMoves && !inCheck),
+                            hubbyColor: room.roles.Hubby,
                             wiifuColor: room.roles.Wiifu
-                        });
-                        room.clients.forEach((r, c) => { if (c.readyState === 1) c.send(finalState); });
-                        return;
-                    }
+                    });
+
+// 3. BROADCAST TO BOTH
+                    room.clients.forEach((role, client) => {
+                             if (client.readyState === 1) client.send(stateRes);
+                    });
 
                     // 5. Checkmate / Stalemate Detection
                     // ... inside if (size === 8 && msg.type === 'MOVE')
