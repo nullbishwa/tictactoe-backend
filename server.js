@@ -200,69 +200,77 @@ wss.on('connection', (ws, req) => {
                 room.turn = 'w'; room.movedPieces.clear(); room.enPassantTarget = -1;
                 room.history = []; room.halfMoveClock = 0;
             }
-            else if (size === 8 && msg.type === 'MOVE') {
-                if (room.turn !== myColor) return;
+                                   else if (size === 8 && msg.type === 'MOVE') {
+    if (room.turn !== myColor) return;
 
-                if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
-                    let tempBoard = simulateMove(room.board, msg.from, msg.to);
-                    const piece = room.board[msg.from];
-                    const isPawn = piece[1] === 'P';
+    if (isMoveLegal(msg.from, msg.to, room.board, myColor, room)) {
+        let tempBoard = simulateMove(room.board, msg.from, msg.to);
+        const piece = room.board[msg.from];
+        const isPawn = piece[1] === 'P';
 
-                    // 1. Handle En Passant Capture
-                    if (isPawn && msg.to === room.enPassantTarget) {
-                        tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
-                    }
+        // 1. Handle En Passant Capture
+        if (isPawn && msg.to === room.enPassantTarget) {
+            tempBoard[msg.to + (myColor === 'w' ? 8 : -8)] = null;
+        }
 
-                    // 2. Handle Castling (Rook movement)
-                    if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
-                        const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
-                        const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
-                        tempBoard[rookTo] = tempBoard[rookFrom];
-                        tempBoard[rookFrom] = null;
-                        room.movedPieces.add(rookFrom);
-                    }
+        // 2. Handle Castling (Rook movement)
+        if (piece[1] === 'K' && Math.abs(msg.to - msg.from) === 2) {
+            const rookFrom = msg.to > msg.from ? msg.from + 3 : msg.from - 4;
+            const rookTo = msg.to > msg.from ? msg.from + 1 : msg.from - 1;
+            tempBoard[rookTo] = tempBoard[rookFrom];
+            tempBoard[rookFrom] = null;
+            room.movedPieces.add(rookFrom);
+        }
 
-                    // 3. Handle Pawn Promotion (Auto-Queen)
-                    const row = Math.floor(msg.to / 8);
-                    if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
+        // 3. Handle Pawn Promotion (Auto-Queen)
+        const row = Math.floor(msg.to / 8);
+        if (isPawn && (row === 0 || row === 7)) tempBoard[msg.to] = myColor + 'Q';
 
-                    // 4. Update Game State
-                    room.board = tempBoard;
-                    room.movedPieces.add(msg.from);
-                    room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
-                    // ... inside the size === 8 && msg.type === 'MOVE' block ...
+        // 4. Update Game State
+        room.board = tempBoard;
+        room.movedPieces.add(msg.from);
+        room.enPassantTarget = (isPawn && Math.abs(msg.to - msg.from) === 16) ? (msg.from + msg.to) / 2 : -1;
 
-                    room.turn = room.turn === 'w' ? 'b' : 'w';
+        // 5. Swap Turn
+        room.turn = room.turn === 'w' ? 'b' : 'w';
 
-// 1. RE-SCAN THE BOARD IMMEDIATELY
-                    const enemyColor = room.turn; // The player who just got checked
-                    const inCheck = isKingInCheck(room.board, enemyColor, room);
-                    const nextMoves = hasLegalMoves(room.board, enemyColor, room);
+        // 6. Checkmate / Stalemate Detection
+        const enemyColor = room.turn; 
+        const inCheck = isKingInCheck(room.board, enemyColor, room);
+        const nextMoves = hasLegalMoves(room.board, enemyColor, room);
 
-// 2. THE DECISION (Force the winner field)
-                    const stateRes = JSON.stringify({
-                            type: 'STATE',
-                            board: room.board,
-                            turn: room.turn,
-                            inCheck: inCheck,
-    // THE FIX: If the enemy is in check and has no moves, Hubby wins!
-                            winner: (!nextMoves && inCheck) ? myRole : null, 
-                            isDraw: (!nextMoves && !inCheck),
-                            hubbyColor: room.roles.Hubby,
-                            wiifuColor: room.roles.Wiifu
-                    });
+        let winner = null;
+        let isDraw = false;
 
-// 3. BROADCAST TO BOTH
-                    room.clients.forEach((role, client) => {
-                             if (client.readyState === 1) client.send(stateRes);
-                    });
+        if (!nextMoves) {
+            if (inCheck) {
+                // The current 'myRole' wins because they put the other person in Checkmate
+                winner = myRole; 
+            } else {
+                isDraw = true;
+            }
+        }
 
-                    // 5. Checkmate / Stalemate Detection
-                    // ... inside if (size === 8 && msg.type === 'MOVE')
-                    // 5. Checkmate / Stalemate Detection
-                    
-                }
-            }
+        // 7. Final Broadcast for this move
+        const stateRes = JSON.stringify({
+            type: 'STATE',
+            board: room.board,
+            turn: room.turn,
+            inCheck: inCheck,
+            winner: winner,
+            isDraw: isDraw,
+            hubbyColor: room.roles.Hubby,
+            wiifuColor: room.roles.Wiifu
+        });
+
+        room.clients.forEach((role, client) => {
+            if (client.readyState === 1) client.send(stateRes);
+        });
+
+        return; // IMPORTANT: Prevent the code below this block from running
+    }
+}
+
 
             else if (size !== 8) {
                 // --- HUBBY & WIIFU TIC-TAC-TOE LOGIC ---
