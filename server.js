@@ -12,7 +12,7 @@ const wss = new WebSocketServer({ server });
 const rooms = new Map();
 
 const initialChessBoard = [
-    "bR", "bN", "bB", "bK", "bQ", "bB", "bN", "bR",
+    "bR", "bN", "bB", "bQ", "bK", "bB", "bN", "bR",
     "bP", "bP", "bP", "bP", "bP", "bP", "bP", "bP",
     ...Array(32).fill(null),
     "wP", "wP", "wP", "wP", "wP", "wP", "wP", "wP",
