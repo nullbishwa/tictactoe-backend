@@ -34,7 +34,22 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     if (!piece || piece[0] !== playerColor) return false;
     const target = board[to];
     if (target && target[0] === playerColor) return false;
+    room.board[to] = room.board[from];
+    room.board[from] = null;
+    
+    // 2. Flip the Turn
+    const nextColor = color === 'w' ? 'b' : 'w';
+    room.turn = nextColor;
 
+    // 3. THE WINNER DECISION (The missing part)
+    // Check if the opponent (Black/Wiifu) is in check
+    if (isKingInCheck(room.board, nextColor, room)) {
+        // If they are in check and have NO legal moves, it's Checkmate!
+        if (!hasLegalMoves(room.board, nextColor, room)) {
+            room.winner = color === 'w' ? 'Hubby' : 'Wiifu'; // Current mover wins
+            room.winReason = "CHECKMATE";
+            room.isGameOver = true;
+        }
     const fromRow = Math.floor(from / 8), fromCol = from % 8;
     const toRow = Math.floor(to / 8), toCol = to % 8;
     const rowDiff = Math.abs(toRow - fromRow);
