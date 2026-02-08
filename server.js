@@ -63,8 +63,11 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
             }
             // 2. Castling Logic (Special 2-Square Move)
             else if (rowDiff === 0 && colDiff === 2 && !state.movedPieces.has(from)) {
-                const isKingside = toCol > fromCol;
-                const rookIdx = isKingside ? from + 3 : from - 4;
+                          const isKingside = toCol > fromCol;
+    
+    // FIX: Because you moved the King to index 3, 
+    // the distance to the Rooks has changed!
+                          const rookIdx = isKingside ? from + 4 : from - 3;
 
                 // Rule: Rook must exist and must not have moved
                 if (board[rookIdx] && !state.movedPieces.has(rookIdx) && isPathClear(from, rookIdx, board)) {
