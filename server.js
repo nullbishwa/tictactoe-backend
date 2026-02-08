@@ -51,7 +51,7 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
             } else if (colDiff === 1 && toRow === fromRow + dir) {
                 if (target || state.enPassantTarget === to) isBasicMoveLegal = true;
             }
-            return true;
+            
             break;
         case 'R': isBasicMoveLegal = (fromRow === toRow || fromCol === toCol) && isPathClear(from, to, board); break;
         case 'B': isBasicMoveLegal = (rowDiff === colDiff) && isPathClear(from, to, board); break;
@@ -97,6 +97,7 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     // The King must be safe after a real move
     const nextBoard = simulateMove(board, from, to);
     return !isKingInCheck(nextBoard, playerColor, state);
+    return true;
 }
 
 function isPathClear(from, to, board) {
