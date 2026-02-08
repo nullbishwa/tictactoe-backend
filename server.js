@@ -91,7 +91,7 @@ function isMoveLegal(from, to, board, playerColor, state, skipKingCheck = false)
     if (!isBasicMoveLegal) return false;
     
     // Allows the scanner to check for actual King safety
-    if (skipKingCheck) return false;
+    if (skipKingCheck) return true;
     
     // The King must be safe after a real move
     const nextBoard = simulateMove(board, from, to);
